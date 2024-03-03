@@ -1,97 +1,97 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using MathNet.Numerics;
+﻿using MathNet.Numerics;
 using MathNet.Numerics.IntegralTransforms;
+using Microsoft.VisualBasic;
 using NAudio.Wave;
+using System;
+using System.Linq;
+using System.Numerics;
+using System.Threading;
 
 public class BeatDetector
 {
     private readonly int sampleRate;
     private readonly int sampleSize;
-    private readonly Complex32[] previousSpectrum;
-    private readonly List<float> spectralFluxes;
-    private double elapsedTimeInSeconds;
-    private double lastBeatTimeInSeconds;  // Added this line
+    private double subBassMax, bassMax, lowMidrangeMax, midrangeMax, upperMidrangeMax, presenceMax, brillianceMax;
+    private bool subBassBeat, bassBeat, lowMidrangeBeat, midrangeBeat, upperMidrangeBeat, presenceBeat, brillianceBeat;
 
     public BeatDetector(int sampleRate, int sampleSize)
     {
         this.sampleRate = sampleRate;
         this.sampleSize = sampleSize;
-        this.previousSpectrum = new Complex32[sampleSize];
-        this.spectralFluxes = new List<float>();
-        this.elapsedTimeInSeconds = 0.0;
-        this.lastBeatTimeInSeconds = 0.0;  // Added this line
-    }
-
-    private void NormalizeSpectrum(Complex32[] spectrum)
-    {
-        float maxMagnitude = spectrum.Max(c => c.Magnitude);
-
-        if (maxMagnitude > 1.0f)
-        {
-            float normalizationFactor = 1.0f / maxMagnitude;
-
-            for (int i = 0; i < spectrum.Length; i++)
-            {
-                spectrum[i] *= normalizationFactor;
-            }
-        }
-    }
-
-    private float CalculateSpectralFlux(Complex32[] currentSpectrum)
-    {
-        float flux = 0.0f;
-
-        for (int i = 0; i < sampleSize; i++)
-        {
-            float difference = Math.Max(0, currentSpectrum[i].Magnitude - previousSpectrum[i].Magnitude);
-            flux += difference;
-        }
-
-        spectralFluxes.Add(flux);
-
-        if (spectralFluxes.Count > 10)
-        {
-            spectralFluxes.RemoveAt(0);
-        }
-
-        float median = spectralFluxes.Skip(Math.Max(0, spectralFluxes.Count - 10)).Take(10).Average();
-
-        return median;
+        subBassMax = bassMax = lowMidrangeMax = midrangeMax = upperMidrangeMax = presenceMax = brillianceMax = 10.0;
+        subBassBeat = bassBeat = lowMidrangeBeat = midrangeBeat = upperMidrangeBeat = presenceBeat = brillianceBeat = false;
     }
 
     public void ProcessFrame(float[] samples)
     {
-        Complex32[] spectrum = new Complex32[this.sampleSize];
-        for (int i = 0; i < this.sampleSize; i++)
+        var audioFFT = new Complex32[sampleSize];
+        for (int i = 0; i < sampleSize; i++)
         {
-            spectrum[i] = new Complex32(samples[i], 0);
+            audioFFT[i] = new Complex32(samples[i], 0);
         }
 
-        Fourier.Forward(spectrum, FourierOptions.NoScaling);
+        Fourier.Forward(audioFFT, FourierOptions.NoScaling);
 
-        NormalizeSpectrum(spectrum);
+        double[] audioMagnitudes = audioFFT.Select(c => (double)c.Magnitude).ToArray();
+        double[] freqs = Enumerable.Range(0, sampleSize / 2)
+                                    .Select(i => (double)i * sampleRate / sampleSize)
+                                    .ToArray();
 
-        float flux = CalculateSpectralFlux(spectrum);
+        int[] subBassIndices = freqs.Select((val, idx) => val >= 20 && val <= 60 ? idx : -1).Where(idx => idx != -1).ToArray();
+        int[] bassIndices = freqs.Select((val, idx) => val >= 60 && val <= 250 ? idx : -1).Where(idx => idx != -1).ToArray();
+        int[] lowMidrangeIndices = freqs.Select((val, idx) => val >= 250 && val <= 500 ? idx : -1).Where(idx => idx != -1).ToArray();
+        int[] midrangeIndices = freqs.Select((val, idx) => val >= 500 && val <= 2000 ? idx : -1).Where(idx => idx != -1).ToArray();
+        int[] upperMidrangeIndices = freqs.Select((val, idx) => val >= 2000 && val <= 4000 ? idx : -1).Where(idx => idx != -1).ToArray();
+        int[] presenceIndices = freqs.Select((val, idx) => val >= 4000 && val <= 6000 ? idx : -1).Where(idx => idx != -1).ToArray();
+        int[] brillianceIndices = freqs.Select((val, idx) => val >= 6000 && val <= 20000 ? idx : -1).Where(idx => idx != -1).ToArray();
 
-        float threshold = 7.0f;
+        double subBass = subBassIndices.Max(idx => audioMagnitudes[idx]);
+        double bass = bassIndices.Max(idx => audioMagnitudes[idx]);
+        double lowMidrange = lowMidrangeIndices.Max(idx => audioMagnitudes[idx]);
+        double midrange = midrangeIndices.Max(idx => audioMagnitudes[idx]);
+        double upperMidrange = upperMidrangeIndices.Max(idx => audioMagnitudes[idx]);
+        double presence = presenceIndices.Max(idx => audioMagnitudes[idx]);
+        double brilliance = brillianceIndices.Max(idx => audioMagnitudes[idx]);
 
-        // Minimum time gap between successive beats (adjust as needed)
-        double minTimeGapInSeconds = 0.2;
+        /*double subBass = subBassIndices != null && subBassIndices.Count() > 0 ? subBassIndices.Max(idx => audioMagnitudes[idx]) : 0;
+        double bass = bassIndices != null && bassIndices.Count() > 0 ? bassIndices.Max(idx => audioMagnitudes[idx]) : 0;
+        double lowMidrange = lowMidrangeIndices != null && lowMidrangeIndices.Count() > 0 ? lowMidrangeIndices.Max(idx => audioMagnitudes[idx]) : 0;
+        double midrange = midrangeIndices != null && midrangeIndices.Count() > 0 ? midrangeIndices.Max(idx => audioMagnitudes[idx]) : 0;
+        double upperMidrange = upperMidrangeIndices != null && upperMidrangeIndices.Count() > 0 ? upperMidrangeIndices.Max(idx => audioMagnitudes[idx]) : 0;
+        double presence = presenceIndices != null && presenceIndices.Count() > 0 ? presenceIndices.Max(idx => audioMagnitudes[idx]) : 0;
+        double brilliance = brillianceIndices != null && brillianceIndices.Count() > 0 ? brillianceIndices.Max(idx => audioMagnitudes[idx]) : 0;*/
 
-        // Check if enough time has passed since the last beat
-        if (flux > threshold && elapsedTimeInSeconds - lastBeatTimeInSeconds > minTimeGapInSeconds)
+        subBassMax = Math.Max(subBassMax, subBass);
+        bassMax = Math.Max(bassMax, bass);
+        lowMidrangeMax = Math.Max(lowMidrangeMax, lowMidrange);
+        midrangeMax = Math.Max(midrangeMax, midrange);
+        upperMidrangeMax = Math.Max(upperMidrangeMax, upperMidrange);
+        presenceMax = Math.Max(presenceMax, presence);
+        brillianceMax = Math.Max(brillianceMax, brilliance);
+
+        CheckBeat(subBass, ref subBassBeat, subBassMax, 0.9, 0.3, ">");
+        CheckBeat(bass, ref bassBeat, bassMax, 0.9, 0.3, ">>");
+        CheckBeat(lowMidrange, ref lowMidrangeBeat, lowMidrangeMax, 0.9, 0.3, ">>>");
+        CheckBeat(midrange, ref midrangeBeat, midrangeMax, 0.9, 0.3, ">>>>");
+        CheckBeat(upperMidrange, ref upperMidrangeBeat, upperMidrangeMax, 0.9, 0.3, ">>>>>");
+        CheckBeat(presence, ref presenceBeat, presenceMax, 0.9, 0.3, ">>>>>>");
+        CheckBeat(brilliance, ref brillianceBeat, brillianceMax, 0.9, 0.3, ">>>>>>>");
+
+        double primaryFreq = freqs[Array.IndexOf(audioMagnitudes, audioMagnitudes.Max())];
+        // Console.WriteLine($"Primary Frequency: {primaryFreq}");
+    }
+
+    private void CheckBeat(double value, ref bool beatFlag, double max, double beatThreshold, double resetThreshold, string beatType)
+    {
+        if (value >= max * beatThreshold && !beatFlag)
         {
-            Console.WriteLine($"Beat detected at {elapsedTimeInSeconds} seconds");
-            lastBeatTimeInSeconds = elapsedTimeInSeconds;
+            beatFlag = true;
+            Console.WriteLine($"{beatType}");
         }
-
-        Array.Copy(spectrum, previousSpectrum, this.sampleSize);
-
-        // Update elapsed time
-        elapsedTimeInSeconds += (double)this.sampleSize / this.sampleRate;
+        else if (value < max * resetThreshold)
+        {
+            beatFlag = false;
+        }
     }
 }
 
@@ -130,7 +130,7 @@ class Program
     {
         string audioFilePath = @"C:\Users\Stefana\Music\If youre so simple (chill lofi beat).wav";
 
-        var beatDetector = new BeatDetector(44100, 1024);
+        var beatDetector = new BeatDetector(44100, 2048);
         using (var audioFile = new AudioFileReader(audioFilePath))
         {
             var sampleProvider = new SampleProvider(beatDetector, audioFile);
